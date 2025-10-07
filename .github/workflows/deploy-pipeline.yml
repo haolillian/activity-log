@@ -1,0 +1,104 @@
+name: CI/CD Deployment Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ====================
+  # Build Job
+  # ====================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install & Build
+        run: |
+          npm install
+          npm run build || true
+          zip -r build.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact
+          path: build.zip
+
+  # ====================
+  # Deploy to Staging
+  # ====================
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+
+      - name: Create Staging Release
+        id: create_staging_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ vars.STAGING_BUILD_TAG }}
+          release_name: ${{ vars.STAGING_BUILD_TAG }}
+          body: "Testing pre-production release: ${{ vars.RELEASE_NOTE }}"
+          draft: false
+          prerelease: true
+
+      - name: Upload Staging Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_staging_release.outputs.upload_url }}
+          asset_path: ./build.zip
+          asset_name: build.zip
+          asset_content_type: application/zip
+
+  # ====================
+  # Deploy to Production
+  # ====================
+  deploy-production:
+    name: Deploy to Production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+
+      - name: Create Production Release
+        id: create_prod_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ vars.PROD_BUILD_TAG }}
+          release_name: ${{ vars.PROD_BUILD_TAG }}
+          body: "Production release: ${{ vars.RELEASE_NOTE }}"
+          draft: false
+          prerelease: false
+
+      - name: Upload Production Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_prod_release.outputs.upload_url }}
+          asset_path: ./build.zip
+          asset_name: build.zip
+          asset_content_type: application/zip
