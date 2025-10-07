@@ -10,6 +10,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    outputs:
+      artifact-path: build.zip
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,11 +34,55 @@ jobs:
           path: build.zip
 
   # ====================
+  # Deploy to Dev
+  # ====================
+  deploy-dev:
+    name: Deploy to Dev
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+
+      - name: Generate Dev Tag
+        id: dev_tag
+        run: |
+          echo "TAG_NAME=dev-v${DEV_BUILD_TAG}" >> $GITHUB_ENV
+          echo "TAG_NAME=dev-v${DEV_BUILD_TAG}" >> $GITHUB_OUTPUT
+        env:
+          DEV_BUILD_TAG: ${{ vars.BUILD_TAG }}
+
+      - name: Create Dev Release
+        id: create_dev_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.dev_tag.outputs.TAG_NAME }}
+          release_name: ${{ steps.dev_tag.outputs.TAG_NAME }}
+          body: "Dev release: ${{ vars.RELEASE_NOTE }}"
+          draft: false
+          prerelease: true
+
+      - name: Upload Dev Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_dev_release.outputs.upload_url }}
+          asset_path: ./build.zip
+          asset_name: build.zip
+          asset_content_type: application/zip
+
+  # ====================
   # Deploy to Staging
   # ====================
   deploy-staging:
     name: Deploy to Staging
-    needs: build
+    needs: deploy-dev
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -45,14 +91,22 @@ jobs:
         with:
           name: build-artifact
 
+      - name: Generate Staging Tag
+        id: staging_tag
+        run: |
+          echo "TAG_NAME=staging-v${STAGING_BUILD_TAG}" >> $GITHUB_ENV
+          echo "TAG_NAME=staging-v${STAGING_BUILD_TAG}" >> $GITHUB_OUTPUT
+        env:
+          STAGING_BUILD_TAG: ${{ vars.STAGING_BUILD_TAG }}
+
       - name: Create Staging Release
         id: create_staging_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ vars.STAGING_BUILD_TAG }}
-          release_name: ${{ vars.STAGING_BUILD_TAG }}
+          tag_name: ${{ steps.staging_tag.outputs.TAG_NAME }}
+          release_name: ${{ steps.staging_tag.outputs.TAG_NAME }}
           body: "Testing pre-production release: ${{ vars.RELEASE_NOTE }}"
           draft: false
           prerelease: true
@@ -81,14 +135,22 @@ jobs:
         with:
           name: build-artifact
 
+      - name: Generate Production Tag
+        id: prod_tag
+        run: |
+          echo "TAG_NAME=prod-v${PROD_BUILD_TAG}" >> $GITHUB_ENV
+          echo "TAG_NAME=prod-v${PROD_BUILD_TAG}" >> $GITHUB_OUTPUT
+        env:
+          PROD_BUILD_TAG: ${{ vars.PROD_BUILD_TAG }}
+
       - name: Create Production Release
         id: create_prod_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ vars.PROD_BUILD_TAG }}
-          release_name: ${{ vars.PROD_BUILD_TAG }}
+          tag_name: ${{ steps.prod_tag.outputs.TAG_NAME }}
+          release_name: ${{ steps.prod_tag.outputs.TAG_NAME }}
           body: "Production release: ${{ vars.RELEASE_NOTE }}"
           draft: false
           prerelease: false
