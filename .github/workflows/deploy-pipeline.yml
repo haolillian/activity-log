@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ====================
+  # ===================
   # Build Job
-  # ====================
+  # ===================
   build:
     name: Build
     runs-on: ubuntu-latest
