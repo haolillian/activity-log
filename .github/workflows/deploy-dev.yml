@@ -1,30 +1,16 @@
 name: CI Dev Deployment
 
 on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Choose deployment environment'
-        required: true
-        default: dev
-        type: choice
-        options:
-          - dev
-          - staging
-          - production
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    outputs:
-      artifact-path: build.zip
-      version: ${{ steps.version.outputs.build_tag }}
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Node
@@ -32,14 +18,11 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build project
-        run: npm run build || true
-
-      - name: Create build.zip
-        run: zip -r build.zip .
+      - name: Install & Build
+        run: |
+          npm install
+          npm run build || true    
+          zip -r build.zip .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -47,47 +30,35 @@ jobs:
           name: build-artifact
           path: build.zip
 
-      - name: Generate Version Tag
-        id: version
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "build_tag=${{ github.event.inputs.environment }}-v$VERSION" >> $GITHUB_ENV
-          echo "build_tag=${{ github.event.inputs.environment }}-v$VERSION" >> $GITHUB_OUTPUT
-          echo "Generated tag: ${{ github.event.inputs.environment }}-v$VERSION"
-
-  deploy:
-    name: Deploy
+   deploy-dev:
+    name: Deploy to Dev
     needs: build
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
+    environment: dev
     steps:
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
           name: build-artifact
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create Tag
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ needs.build.outputs.version }}
-          git push origin ${{ needs.build.outputs.version }}
+      - name: Create GitHub Release (dev)
+        id: create_release
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ vars.BUILD_TAG }}
+          release_name: ${{ vars.BUILD_TAG }}
+          body: ${{ vars.RELEASE_NOTE }}
+          draft: false
+          prerelease: false
 
-      - name: Create GitHub Release
-        run: |
-          gh release create "${{ needs.build.outputs.version }}" build.zip \
-            --notes "${{ vars.RELEASE_NOTE }}"
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Notify on GitHub
-        run: |
-          gh issue comment 1 --body "Deployment of `${{ needs.build.outputs.version }}` to `${{ github.event.inputs.environment }}` completed."
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./build.zip
+          asset_name: build.zip
+          asset_content_type: application/zip
